@@ -1,0 +1,193 @@
+#!/usr/local/bin/python3
+
+import base64
+import gzip
+import json
+import os
+import re
+import struct
+import subprocess
+import sys
+import traceback
+
+import requests
+
+
+VERSION = "1.1.2019.509"
+SCHEMA = "upm"
+
+PVG_MAGIC = b"PVG\x00\x00\x00\x00\x00\x01\x00\x00\x00"
+PNG_MAGIC = b"\x89PNG\x0d\x0a\x1a\x0a"
+
+CUPS_BACKEND_OK = 0  # Job completed successfully
+CUPS_BACKEND_FAILED = 1  # Job failed, use error-policy
+CUPS_BACKEND_AUTH_REQUIRED = 2  # Job failed, authentication required
+CUPS_BACKEND_HOLD = 3  # Job failed, hold job
+CUPS_BACKEND_STOP = 4  # Job failed, stop queue
+CUPS_BACKEND_CANCEL = 5  # Job failed, cancel job
+CUPS_BACKEND_RETRY = 6  # Job failed, retry this job later
+CUPS_BACKEND_RETRY_CURRENT = 7  # Job failed, retry this job immediately
+
+args = len(sys.argv)
+
+
+class ServerException(Exception):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+class RequestException(Exception):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+class APIRequest:
+    def __init__(self, base_url):
+        self.s = requests.session()
+        self.base = base_url
+        self.s.headers["Referer"] = base_url + "/driver/print.html"
+        self.s.headers["User-Agent"] = "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.2; WOW64; Trident/7.0; .NET4.0C; .NET4.0E; .NET CLR 2.0.50727; .NET CLR 3.0.30729; .NET CLR 3.5.30729; LCTE)"
+
+    def __parse_result(self, resp):
+        if not resp.status_code == 200:
+            raise ServerException(resp.request.url)
+
+        content = json.loads(resp.content.decode())
+        if not content["code"] == 0:
+            raise RequestException(content["message"])
+
+        return content
+
+    def request(self, suburl, data):
+        with self.s.post(self.base + suburl, json=data, timeout=10) as resp:
+            return self.__parse_result(resp)
+
+    def upload(self, suburl, stream, filename):
+        with self.s.post(self.base + suburl, files={"szFile": (filename, stream, "application/octet-stream", {"Content-Transfer-Encoding": "binary"})}, timeout=10) as resp:
+            return self.__parse_result(resp)
+
+    def getSID(self):
+        if "OSESSIONID" in self.s.cookies:
+            return self.s.cookies["OSESSIONID"]
+
+    def close(self):
+        self.s.close()
+
+
+def start_print(stream):
+    device_uri = os.environ["DEVICE_URI"]
+    job_title = sys.argv[3]
+    copies = sys.argv[4]
+
+    parse = re.match(fr"{SCHEMA}://(.*)/(.*?):(.*)", device_uri)
+    if parse is None:
+        print("ERROR: Invalid device URI", file=sys.stderr)
+        sys.exit(CUPS_BACKEND_STOP)
+
+    username = parse.groups()[1]
+    password = parse.groups()[2]
+    url = "http://" + parse.groups()[0]
+    print(f"INFO: Username: {username}", file=sys.stderr)
+    print(f"DEBUG: Password: {password}", file=sys.stderr)
+    print(f"INFO: URL: {url}", file=sys.stderr)
+
+    client = APIRequest(url)
+    jobID = None
+    try:
+        paper = client.request("/api/client/Paper/GetPaper", data={})
+        sid = client.getSID()
+
+        print("INFO: Start Login", file=sys.stderr)
+        auth = client.request("/api/client/Auth/GetAuthToken", data={"sessionid": sid})
+        login = client.request("/api/client/Auth/Login", data={"szLogonName": username, "szPassword": password, "szToken": auth["szToken"], "sessionid": sid})
+        client.request("/api/client/Auth/Cancel", data={"sessionid": sid, "szToken": auth["szToken"]})
+        print(f"INFO: Print for {login['result']['szTrueName']}", file=sys.stderr)
+
+        print(f"INFO: Generage Page Info", file=sys.stderr)
+        data = stream.read()
+        preview = PVG_MAGIC
+        try:
+            proc = subprocess.run(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], capture_output=True, input=data, timeout=300)
+            png_data = proc.stdout
+
+            ind = 0
+            pages = 0
+            suffix = b''
+            png_data = png_data + b"\x00"
+            while True:
+                ind_new = png_data.find(PNG_MAGIC, ind + 1)
+
+                png = base64.b64encode(png_data[ind:ind_new])
+                suffix = suffix + struct.pack("<I", len(preview))
+                preview = preview + struct.pack("<I", len(png)) + png
+
+                pages = pages + 1
+                if ind_new == -1:
+                    break
+                ind = ind_new
+            preview = preview + suffix + struct.pack("<I", pages)
+        except Exception as e:
+            print(f"WARN: Failed to get printing info: {str(e)}", file=sys.stderr)
+            pages = 1
+
+        print(f"INFO: Create Job: Pages {pages}", file=sys.stderr)
+        # TODO: Add color support
+        job_spec = {
+            "dwProperty": 0, 
+            "szJobName": job_title,
+            "dwCopies": int(copies),
+            "szAttribe": "single,collate,NUP1,",
+            "szPaperDetail": json.dumps([{"dwPaperID": 9, "dwBWPages": pages, "dwColorPages": 0, "dwPaperNum": pages}]),
+            "szColorMap": "0" * pages,
+            "OSESSIONID": sid
+        }
+        job = client.request("/api/client/PrintJob/Create", data=job_spec)
+        jobID = job['result']['dwJobId']
+
+        print("INFO: Upload Job", file=sys.stderr)
+        gdata = gzip.compress(data)
+        client.upload(f"/api/client/PrintJob/Upload?dwJobId={jobID}", gdata, "raw.dat")
+        client.upload(f"/api/client/PrintJob/UploadPreview?dwJobId={jobID}", preview, "preview.pvg")
+
+        client.request("/api/client/PrintJob/Set", data={"dwJobId": jobID, "dwStatus": 1, "OSESSIONID": sid})
+        print("INFO: Printing Completed", file=sys.stderr)
+        jobID = None
+    except ServerException as e:
+        print(f"ERROR: Printing Server Error in [{str(e)}]", file=sys.stderr)
+        sys.exit(CUPS_BACKEND_RETRY)
+
+    except RequestException as e:
+        print(f"ERROR: Invalid Request: {str(e)}", file=sys.stderr)
+        sys.exit(CUPS_BACKEND_CANCEL)
+
+    except requests.RequestException:
+        print(f"ERROR: Connect to Server Failed", file=sys.stderr)
+        sys.exit(CUPS_BACKEND_RETRY)
+
+    except Exception as e:
+        print(f"ERROR: Backend Error: {str(e)}", file=sys.stderr)
+        tb = traceback.format_exc()
+        [print(f"ERROR: {i}", file=sys.stderr) for i in tb.split("\n")]
+        sys.exit(CUPS_BACKEND_STOP)
+
+    finally:
+        if jobID is not None:
+            try:
+                client.request("/api/client/PrintJob/Del", data={"dwJobId": jobID})
+            except Exception as e:
+                print(f"ERROR: Failed to Remove Printing Job: {str(e)}", file=sys.stderr)
+        client.close()
+
+
+if __name__ == "__main__":
+    if args == 1:
+        print(f"network {SCHEMA} \"Unifound\" \"Unifound Printing Backend [{VERSION}]\"")
+        sys.exit(CUPS_BACKEND_OK)
+    elif args == 6:
+        start_print(sys.stdin.buffer)
+    elif args == 7:
+        with open(sys.argv[6], 'rb') as spool_file:
+            start_print(spool_file)
+    else:
+        print("Not implemented")
+        sys.exit(CUPS_BACKEND_FAILED)
