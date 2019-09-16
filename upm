@@ -3,6 +3,7 @@
 import base64
 import gzip
 import json
+import math
 import os
 import re
 import struct
@@ -126,19 +127,54 @@ def start_print(stream):
                     break
                 ind = ind_new
             preview = preview + suffix + struct.pack("<I", pages)
+
+            proc = subprocess.run(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=inkcov", "-sOutputFile=%stdout", "-"], stdout=subprocess.PIPE, input=data, timeout=300)
+            cmyk = proc.stdout.decode().split("\n")
+
+            color_map = []
+            for line in cmyk:
+                color = re.match(r" ([\d\.]+)  ([\d\.]+)  ([\d\.]+)  ([\d\.]+) CMYK OK", line)
+                if color is None:
+                    print(f"WARN: Invalid output from 'inkcov': {line}", file=sys.stderr)
+                    continue
+                c = float(color.groups()[0])
+                m = float(color.groups()[1])
+                y = float(color.groups()[2])
+                k = float(color.groups()[3])
+
+                if c == m == y == k == 0:
+                    print("NOTICE: Skipped an empty page", file=sys.stderr)
+                    continue
+                elif c == m == y:
+                    color_map.append(0)
+                else:
+                    color_map.append(1)
+            v_pages = len(color_map)
+
+            if v_pages == 0:
+                print("WARN: No valid pages found! Set to one", file=sys.stderr)
+                color_map = [0]
+                v_pages = len(color_map)
+
+            bw_pages = color_map.count(0)
+            color_pages = v_pages - bw_pages
         except Exception as e:
             print(f"WARN: Failed to get printing info: {str(e)}", file=sys.stderr)
-            pages = 1
+            color_map = [0]
+            bw_pages = 1
+            color_pages = 0
+            pages = v_pages = 1
 
-        print(f"INFO: Create Job: Pages {pages}", file=sys.stderr)
-        # TODO: Add color support
+        print(f"INFO: Create Job [Valid Pages: {v_pages}, Color: {color_pages}, Grayscale: {bw_pages}]", file=sys.stderr)
+        # TODO: Add A3 paper and single/duplex support. Single is default now 
+        # TODO: Add "切换为黑白输出" support
         job_spec = {
-            "dwProperty": 0, 
+            "dwProperty": 0,
             "szJobName": job_title,
             "dwCopies": int(copies),
-            "szAttribe": "single,collate,NUP1,",
-            "szPaperDetail": json.dumps([{"dwPaperID": 9, "dwBWPages": pages, "dwColorPages": 0, "dwPaperNum": pages}]),
-            "szColorMap": "0" * pages,
+            "szAttribe": ("" if color_pages == 0 else "color,") + "single,collate,NUP1,",
+            "szPaperDetail": json.dumps([{"dwPaperID": 9, "dwBWPages": bw_pages, "dwColorPages": color_pages, "dwPaperNum": v_pages}]),
+            "szColorMap": "".join(str(i) for i in color_map),
             "OSESSIONID": sid
         }
         job = client.request("/api/client/PrintJob/Create", data=job_spec)
