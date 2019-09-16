@@ -8,7 +8,7 @@ This driver can be also used in any Unix system that support CUPS with slightly 
 
 ## Requirements
 
-- Python >= 3.5 [should be installed in `/usr/local/bin/`]
+- Python >= 3.6 [should be installed in `/usr/local/bin/`]
 - Python requests
 
 ## How To

@@ -107,7 +107,7 @@ def start_print(stream):
         data = stream.read()
         preview = PVG_MAGIC
         try:
-            proc = subprocess.run(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], capture_output=True, input=data, timeout=300)
+            proc = subprocess.run(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], stdout=subprocess.PIPE, input=data, timeout=300)
             png_data = proc.stdout
 
             ind = 0
