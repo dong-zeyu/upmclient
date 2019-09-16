@@ -78,7 +78,6 @@ class APIRequest:
 def start_print(stream):
     device_uri = os.environ["DEVICE_URI"]
     job_title = sys.argv[3]
-    copies = sys.argv[4]
 
     parse = re.match(fr"{SCHEMA}://(.*)/(.*?):(.*)", device_uri)
     if parse is None:
@@ -171,7 +170,7 @@ def start_print(stream):
         job_spec = {
             "dwProperty": 0,
             "szJobName": job_title,
-            "dwCopies": int(copies),
+            "dwCopies": 1,
             "szAttribe": ("" if color_pages == 0 else "color,") + "single,collate,NUP1,",
             "szPaperDetail": json.dumps([{"dwPaperID": 9, "dwBWPages": bw_pages, "dwColorPages": color_pages, "dwPaperNum": v_pages}]),
             "szColorMap": "".join(str(i) for i in color_map),
