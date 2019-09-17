@@ -40,6 +40,10 @@ class RequestException(Exception):
         super().__init__(*args, **kwargs)
 
 
+def log(msg, level):
+    print(f"{level}: {msg}", file=sys.stderr)
+
+
 class APIRequest:
     def __init__(self, base_url):
         self.s = requests.session()
@@ -79,15 +83,15 @@ def start_print(stream):
 
     parse = re.match(fr"{SCHEMA}://(.*)/(.*?):(.*)", device_uri)
     if parse is None:
-        print("ERROR: Invalid device URI", file=sys.stderr)
+        log("Invalid device URI", "ERROR")
         sys.exit(CUPS_BACKEND_STOP)
 
     username = parse.groups()[1]
     password = parse.groups()[2]
     url = "http://" + parse.groups()[0]
-    print(f"INFO: Username: {username}", file=sys.stderr)
-    print(f"DEBUG: Password: {password}", file=sys.stderr)
-    print(f"INFO: URL: {url}", file=sys.stderr)
+    log(f"Username: {username}", "INFO")
+    log(f"Password: {password}", "DEBUG")
+    log(f"URL: {url}", "INFO")
 
     client = APIRequest(url)
     jobID = None
@@ -95,13 +99,13 @@ def start_print(stream):
         paper = client.request("/api/client/Paper/GetPaper", data={})
         sid = client.getSID()
 
-        print("INFO: Start Login", file=sys.stderr)
+        log("Start Login", "INFO")
         auth = client.request("/api/client/Auth/GetAuthToken", data={"sessionid": sid})
         login = client.request("/api/client/Auth/Login", data={"szLogonName": username, "szPassword": password, "szToken": auth["szToken"], "sessionid": sid})
         client.request("/api/client/Auth/Cancel", data={"sessionid": sid, "szToken": auth["szToken"]})
-        print(f"INFO: Print for {login['result']['szTrueName']}", file=sys.stderr)
+        log(f"Print for {login['result']['szTrueName']}", "INFO")
 
-        print(f"INFO: Generage Page Info", file=sys.stderr)
+        log(f"Generage Page Info", "INFO")
         data = stream.read()  # TODO: Optimizing for memory usage using os.pipe()
         preview = PVG_MAGIC
         try:
@@ -132,7 +136,7 @@ def start_print(stream):
             for line in cmyk:
                 color = re.match(r" ([\d\.]+)  ([\d\.]+)  ([\d\.]+)  ([\d\.]+) CMYK OK", line)
                 if color is None:
-                    print(f"WARNING: Invalid output from 'inkcov': {line}", file=sys.stderr)
+                    log(f"Invalid output from 'inkcov': {line}", "WARNING")
                     continue
                 c = float(color.groups()[0])
                 m = float(color.groups()[1])
@@ -140,7 +144,7 @@ def start_print(stream):
                 k = float(color.groups()[3])
 
                 if c == m == y == k == 0:
-                    print("NOTICE: Skipped an empty page", file=sys.stderr)
+                    log("Skipped an empty page", "NOTICE")
                     continue
                 elif c == m == y:
                     color_map.append(0)
@@ -149,20 +153,20 @@ def start_print(stream):
             v_pages = len(color_map)
 
             if v_pages == 0:
-                print("WARNING: No valid pages found! Set to one", file=sys.stderr)
+                log("No valid pages found! Set to one", "WARNING")
                 color_map = [0]
                 v_pages = len(color_map)
 
             bw_pages = color_map.count(0)
             color_pages = v_pages - bw_pages
         except Exception as e:
-            print(f"WARNING: Failed to get printing info: {str(e)}", file=sys.stderr)
+            log(f"Failed to get printing info: {str(e)}", "WARNING")
             color_map = [0]
             bw_pages = 1
             color_pages = 0
             pages = v_pages = 1
 
-        print(f"INFO: Create Job [Valid Pages: {v_pages}, Color: {color_pages}, Grayscale: {bw_pages}]", file=sys.stderr)
+        log(f"Create Job [Valid Pages: {v_pages}, Color: {color_pages}, Grayscale: {bw_pages}]", "INFO")
         # TODO: Add A3 paper and single/duplex supports. Single is default now 
         # TODO: Add "切换为黑白输出" support
         job_spec = {
@@ -177,30 +181,30 @@ def start_print(stream):
         job = client.request("/api/client/PrintJob/Create", data=job_spec)
         jobID = job['result']['dwJobId']
 
-        print("INFO: Upload Job", file=sys.stderr)
+        log("Upload Job", "INFO")
         gdata = gzip.compress(data)
         client.upload(f"/api/client/PrintJob/Upload?dwJobId={jobID}", gdata, "raw.dat")
         client.upload(f"/api/client/PrintJob/UploadPreview?dwJobId={jobID}", preview, "preview.pvg")
 
         client.request("/api/client/PrintJob/Set", data={"dwJobId": jobID, "dwStatus": 1, "OSESSIONID": sid})
-        print("INFO: Printing Completed", file=sys.stderr)
+        log("Printing Completed", "INFO")
         jobID = None
     except ServerException as e:
-        print(f"ERROR: Printing Server Error in [{str(e)}]", file=sys.stderr)
+        log(f"Printing Server Error in [{str(e)}]", "ERROR")
         sys.exit(CUPS_BACKEND_RETRY)
 
     except RequestException as e:
-        print(f"ERROR: Invalid Request: {str(e)}", file=sys.stderr)
+        log(f"Invalid Request: {str(e)}", "ERROR")
         sys.exit(CUPS_BACKEND_CANCEL)
 
     except requests.RequestException:
-        print(f"ERROR: Connect to Server Failed", file=sys.stderr)
+        log(f"Connect to Server Failed", "ERROR")
         sys.exit(CUPS_BACKEND_RETRY)
 
     except Exception as e:
-        print(f"ERROR: Backend Error: {str(e)}", file=sys.stderr)
+        log(f"Backend Error: {str(e)}", "ERROR")
         tb = traceback.format_exc()
-        [print(f"ERROR: {i}", file=sys.stderr) for i in tb.split("\n")]
+        [log(f"{i}", "ERROR") for i in tb.split("\n")]
         sys.exit(CUPS_BACKEND_STOP)
 
     finally:
@@ -208,7 +212,7 @@ def start_print(stream):
             try:
                 client.request("/api/client/PrintJob/Del", data={"dwJobId": jobID})
             except Exception as e:
-                print(f"ERROR: Failed to Remove Printing Job: {str(e)}", file=sys.stderr)
+                log(f"Failed to Remove Printing Job: {str(e)}", "ERROR")
         client.close()
 
 
