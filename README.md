@@ -10,6 +10,7 @@ This driver can be also used in any Unix system that supports CUPS with slightly
 
 - Python >= 3.6 [should be installed in `/usr/local/bin/python3`]
 - Python requests
+- PyQt5
 
 ## How To
 

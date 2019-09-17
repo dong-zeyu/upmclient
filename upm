@@ -26,8 +26,68 @@ CUPS_BACKEND_STOP = 4  # Job failed, stop queue
 CUPS_BACKEND_CANCEL = 5  # Job failed, cancel job
 CUPS_BACKEND_RETRY = 6  # Job failed, retry this job later
 CUPS_BACKEND_RETRY_CURRENT = 7  # Job failed, retry this job immediately
+ICON = b'\x1f\x8b\x08\x00\x9a\x0f\x81]\x02\xff\xed\x90ILSa\x14\x85\xcf\x13\x11\x1c\xc1\tq\x04gT\x8a" \xa0VP\x04\'\x84*\xd6\xd6\x01[\xa4Z\x1c0i\x9a`R\x10\x9eT\x1a\x90a\xc1\x90.\x9a2$\x96E\xdb\xa0P\xa8R\x86V\xc4\x18\x02)IC\xa5D\x0c\xed\xa22\x84ba\xa3\xe2\xa2>dX\xbar\xc9\xf7\xe7\xe6\xe6\x9c\xbb\xb8\xe7\xfe\x00A=oo\xfc%\xcd\x1d\xf0\xa1z\x00U3\x96?U\x04<\xf1/j%\x12T\x16\x16B\xc8\xe7\x83\x99\x98\x88\xce\x96\x16<\xcf\xcc\x84V\xa3\x81Q\xd7\x0cQj\n\xbeY\xfa\xe12}\xc2\xef~#\xcc\xfaf\xbc\xa9\x91\xa3[U\x03W\xdfG|\x1f4c\xe8\xc3[|y\xdf\x04\xbbm\x08\xae\xcf\x1a\xca\x7f\x8d__;\xe1\x1a|\x07\x97\xbd\x1b.\xc7 \\?& R\xbe\x04\xff\x85\x00\xd3\xd3\xd3\x98\x9a\x9a\xc2\xe4\xe4$\x9cN\'&&&\xe0p80>>\x8e\xb1\xb11\x8c\x8e\x8ebdd\x04\xc3\xc3\xc3\xb0\xdb\xed\xb0\xd9l\xb0Z\xad\x18\x18\x18\x80\xc5b\x81\xd9lF__\x1fL&\x13z{{a4\x1a\xd1\xd3\xd3\x83\xae\xae.ttt\xc0`0@\xaf\xd7\xa3\xbd\xbd\x1dmmmhmm\x85N\xa7\x83V\xabESS\x13\x1a\x1b\x1b\xa1\xa1\xeekhh@}}=\xea\xea\xea\xa0V\xab\xa1R\xa9\xa0T*Q[[\x0b\x85B\x81\xea\xeajTUU\xa1\xb2\xb2\x12r\xb9\x1c2\x99\x0cR\xa9\x14\x15\x15\x15(//GYY\x19JKKQRR\x82\xe2\xe2b\x14\x15\x15\xa1\xa0\xa0\x00\xf9\xf9\xf9\x90P\xff\x9a\x97\x97\x07\xb1X\x8c\xdc\xdc\\\x90$\x89\xec\xecldeeA$\x12!##\x03B\xa1\x10\x02\x81\x00\xe9\xe9\xe9\xe0\xf1x\xe0r\xb9\xe0p8`\xb3\xd9`\xb1X`2\x99`0\x18HHH@ll,bbb\xb0\xc8"\xff\x15\xd6,\xf32\x91\xf7\xe8\xf1\xd2e\x0f\xd3\xb8\xb3Nj\x9c\x7f\xf4\x12\xc2\xe3\xc0)\xfe\x83;\x94\x8c\xdf\xe5\xbf?\x86q\xef\xee\xb5\xe3\xfbN\xa7\x00\xf4\x1d~\xb4\x84\xdb\x97\xa3\xe3\x12\xaf2S\xa99\x9dv>>\xf4l\xd2\xad\x1b\x17\xc2\xb7\xddO\x068q\x814\x1a\xedPp\xc4%\xe6v\xfeM\xe0\xe2A\xda\x91\xd0\xa0\xa3a\xc7B\x0e\x87\xa4P\x0b\xe8Aa\xb1\xe7\x82w\xee\xde\x1b\x18\x1eq}f\x1d=tO\xf4\x893\'##\xa3\xe6\x02\xb9{\xaf\\\xb5vC\x00{>\xdfj__\xdf\x8d>\xcb\x17\xe2zm\xa6\xd8\xe4\xb6p\xcd\xba-\x14\xeb\xaf\xccK\xcf\xad3\xacY\x18\xaf\x98eN\xfd\xf4\x92?v\xba1\x92\xacD^\xbb\x81PJIB"&\t\xa9\x82$\xc8\x16\x92\x00H7\xd9\x13\x83GR\xb2\xd5\xeb\xd5S\xab\x9f\xa6\xd3\x1aU*\xb1F=\x13\x19r\x84jC\x0e\xf0\x07+\xd4gG~\x05\x00\x00'
 
 args = len(sys.argv)
+
+is_gui = False
+try:
+    from PyQt5.Qt import QVBoxLayout
+    from PyQt5.QtGui import QIcon, QPixmap
+    from PyQt5.QtWidgets import (QApplication, QDialog, QLabel, QLineEdit,
+                             QMessageBox, QPushButton)
+
+    is_gui = True
+    app = QApplication(sys.argv)
+    pm = QPixmap()
+    pm.loadFromData(gzip.decompress(ICON))
+    icon = QIcon(pm)
+
+    class AuthenticationDialog(QDialog):
+        def __init__(self, username):
+            super().__init__()
+            self.password = None
+            self.username = username
+            self.createUI()
+
+        def createUI(self):
+            self.setWindowIcon(icon)
+            self.setWindowTitle("Unifound Printing Management System")
+
+            l_user = QLabel("Username:", self)
+            self.t_user = QLineEdit(self.username, self)
+
+            l_pass = QLabel("Password:", self)
+            self.t_pass = QLineEdit("", self)
+            self.t_pass.setEchoMode(QLineEdit.Password)
+            
+            b_ok = QPushButton("Confirm", self)
+            b_cancel = QPushButton("Cancel", self)
+
+            layout = QVBoxLayout()
+            self.setLayout(layout)
+            layout.addWidget(l_user)
+            layout.addWidget(self.t_user)
+            layout.addWidget(l_pass)
+            layout.addWidget(self.t_pass)
+            layout.addWidget(b_ok)
+            layout.addWidget(b_cancel)
+
+            b_ok.clicked.connect(self.confirm)
+            b_cancel.clicked.connect(self.cancel)
+
+            self.show()
+
+        def confirm(self):
+            self.password = self.t_pass.text()
+            self.username = self.t_user.text()
+            self.close()
+
+        def cancel(self):
+            self.close()
+
+except ImportError:
+    CUPS_BACKEND_RETRY_CURRENT = CUPS_BACKEND_CANCEL
 
 
 class ServerException(Exception):
@@ -41,7 +101,22 @@ class RequestException(Exception):
 
 
 def log(msg, level):
-    print(f"{level}: {msg}", file=sys.stderr)
+    if is_gui and level == "GUI":
+        msgbox = QMessageBox()
+        msgbox.setText(msg)
+        msgbox.setIcon(QMessageBox.Information)
+        msgbox.setWindowIcon(icon)
+        msgbox.setWindowTitle("Information")
+        msgbox.exec_()
+    else:
+        print(f"{level}: {msg}", file=sys.stderr)
+        if is_gui and (level == "ERROR" or level == "WARNING"):
+            msgbox = QMessageBox()
+            msgbox.setText(msg)
+            msgbox.setIcon(QMessageBox.Critical if level == "ERROR" else QMessageBox.Warning)
+            msgbox.setWindowIcon(icon)
+            msgbox.setWindowTitle(level)
+            msgbox.exec_()
 
 
 class APIRequest:
@@ -83,11 +158,24 @@ def start_print(stream):
 
     parse = re.match(fr"{SCHEMA}://(.*)/(.*?):(.*)", device_uri)
     if parse is None:
-        log("Invalid device URI", "ERROR")
-        sys.exit(CUPS_BACKEND_STOP)
+        if not is_gui:
+            log("Invalid device URI", "ERROR")
+            sys.exit(CUPS_BACKEND_STOP)
+        
+        parse = re.match(fr"{SCHEMA}://([^/]*)/?(.*)", device_uri)
+        
+        dlg = AuthenticationDialog(parse.groups()[1])
+        
+        dlg.exec_()
+        username = dlg.username
+        password = dlg.password
 
-    username = parse.groups()[1]
-    password = parse.groups()[2]
+        if password is None:
+            sys.exit(CUPS_BACKEND_CANCEL)
+    else:
+        username = parse.groups()[1]
+        password = parse.groups()[2]
+
     url = "http://" + parse.groups()[0]
     log(f"Username: {username}", "INFO")
     log(f"Password: {password}", "DEBUG")
@@ -188,6 +276,7 @@ def start_print(stream):
 
         client.request("/api/client/PrintJob/Set", data={"dwJobId": jobID, "dwStatus": 1, "OSESSIONID": sid})
         log("Printing Completed", "INFO")
+        log("Printing Completed", "GUI")
         jobID = None
     except ServerException as e:
         log(f"Printing Server Error in [{str(e)}]", "ERROR")
@@ -195,7 +284,7 @@ def start_print(stream):
 
     except RequestException as e:
         log(f"Invalid Request: {str(e)}", "ERROR")
-        sys.exit(CUPS_BACKEND_CANCEL)
+        sys.exit(CUPS_BACKEND_RETRY_CURRENT)
 
     except requests.RequestException:
         log(f"Connect to Server Failed", "ERROR")
