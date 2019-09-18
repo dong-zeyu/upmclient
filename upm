@@ -134,6 +134,9 @@ def start_print(stream):
 
             color_map = []
             for line in cmyk:
+                if not line:
+                    continue
+
                 color = re.match(r" ([\d\.]+)  ([\d\.]+)  ([\d\.]+)  ([\d\.]+) CMYK OK", line)
                 if color is None:
                     log(f"Invalid output from 'inkcov': {line}", "WARNING")
