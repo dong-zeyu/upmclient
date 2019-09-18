@@ -53,6 +53,7 @@ try:
     pm = QPixmap()
     pm.loadFromData(gzip.decompress(base64.b85decode(ICON)))
     icon = QIcon(pm)
+    app.setWindowIcon(icon)
 
     class AuthenticationDialog(QDialog):
         def __init__(self, username):
