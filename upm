@@ -195,7 +195,7 @@ def start_print(stream):
 
     except RequestException as e:
         log(f"Invalid Request: {str(e)}", "ERROR")
-        sys.exit(CUPS_BACKEND_CANCEL)
+        sys.exit(CUPS_BACKEND_HOLD)
 
     except requests.RequestException:
         log(f"Connect to Server Failed", "ERROR")
