@@ -26,9 +26,9 @@ You may need to run `cupsctl WebInterface=yes` to enable web admin.
 
 #### URI specification
 
-`upm://<server host>:<port>/<username>:<password>`
+`upm://<server host>:<port>/[username[:password]]`
 
-For SUSTech students, use `<server host>=172.18.1.141` and `<port>=9130` or `<port>=80`
+For SUSTech students, use `<server host>=172.18.1.141` and `<port>=9130` or `<port>=80`. `username` and `password` are optional if PyQt5 is installed
 
 #### Printer Description File
 
