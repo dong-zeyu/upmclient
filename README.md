@@ -37,4 +37,3 @@ For SUSTech students, use `<server host>=172.18.1.141` and `<port>=9130` or `<po
 
 - Supporting A4 Paper only
 - "切换到黑白输出" not working
-- Memory issue when printing large files (1G memory ~ 50 pages)

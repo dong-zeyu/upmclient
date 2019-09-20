@@ -2,12 +2,14 @@
 
 import base64
 import gzip
+import io
 import json
 import os
 import re
 import struct
 import subprocess
 import sys
+import threading
 import traceback
 
 import requests
@@ -27,6 +29,8 @@ CUPS_BACKEND_CANCEL = 5  # Job failed, cancel job
 CUPS_BACKEND_RETRY = 6  # Job failed, retry this job later
 CUPS_BACKEND_RETRY_CURRENT = 7  # Job failed, retry this job immediately
 
+BUF_SIZE = 1024 * 1024 * 16  # 16M read buffer
+
 args = len(sys.argv)
 
 
@@ -42,6 +46,26 @@ class RequestException(Exception):
 
 def log(msg, level):
     print(f"{level}: {msg}", file=sys.stderr)
+
+
+class Popen(threading.Thread):
+    def __init__(self, args, stdin):
+        super().__init__()
+        self.proc = subprocess.Popen(args, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.stdin = stdin
+        self.data = None
+        self.start()
+
+    def run(self):
+        self.data = self.proc.stdout.read()
+
+    def join(self, timeout):
+        super().join(timeout)
+        if self.is_alive():
+            self.proc.terminate()
+            self.join()
+        else:
+            self.proc.wait(timeout)
 
 
 class APIRequest:
@@ -105,12 +129,40 @@ def start_print(stream):
         client.request("/api/client/Auth/Cancel", data={"sessionid": sid, "szToken": auth["szToken"]})
         log(f"Print for {login['result']['szTrueName']}", "INFO")
 
-        log(f"Generage Page Info", "INFO")
-        data = stream.read()  # TODO: Optimizing for memory usage using os.pipe()
-        preview = PVG_MAGIC
+        write = []
+        gdata = io.BytesIO()
+        gf = gzip.GzipFile(mode='wb', fileobj=gdata)
+        write.append(gf)
+
+        pvg_pr, pvg_pw = os.pipe()
+        cl_pr, cl_pw = os.pipe()
+        pvg_proc = None
+        cl_proc = None
         try:
-            proc = subprocess.run(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], stdout=subprocess.PIPE, input=data, timeout=300)
-            png_data = proc.stdout
+            pvg_proc = Popen(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], stdin=pvg_pr)
+            write.append(open(pvg_pw, 'wb'))
+            cl_proc = Popen(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=inkcov", "-sOutputFile=%stdout", "-"], stdin=cl_pr)
+            write.append(open(cl_pw, 'wb'))
+        except OSError as e:
+            log(f"Failed to get printing info: {str(e)}", "WARNING")
+        finally:
+            os.close(pvg_pr)
+            os.close(cl_pr)
+
+        while True:
+            buf = stream.read(BUF_SIZE)
+            if buf == b'':
+                break
+            for w in write:
+                w.write(buf)
+        for w in write:
+            w.close()
+
+        log("Generate Page Info", "INFO")
+        preview = PVG_MAGIC
+        if pvg_proc:
+            pvg_proc.join(300)
+            png_data = pvg_proc.data
 
             ind = 0
             pages = 0
@@ -129,8 +181,9 @@ def start_print(stream):
                 ind = ind_new
             preview = preview + suffix + struct.pack("<I", pages)
 
-            proc = subprocess.run(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=inkcov", "-sOutputFile=%stdout", "-"], stdout=subprocess.PIPE, input=data, timeout=300)
-            cmyk = proc.stdout.decode().split("\n")
+        if cl_proc:
+            cl_proc.join(120)
+            cmyk = cl_proc.data.decode().split("\n")
 
             color_map = []
             for line in cmyk:
@@ -162,12 +215,11 @@ def start_print(stream):
 
             bw_pages = color_map.count(0)
             color_pages = v_pages - bw_pages
-        except Exception as e:
-            log(f"Failed to get printing info: {str(e)}", "WARNING")
+        else:
             color_map = [0]
             bw_pages = 1
             color_pages = 0
-            pages = v_pages = 1
+            v_pages = 1
 
         log(f"Create Job [Valid Pages: {v_pages}, Color: {color_pages}, Grayscale: {bw_pages}]", "INFO")
         # TODO: Add A3 paper and single/duplex supports. Single is default now 
@@ -185,7 +237,7 @@ def start_print(stream):
         jobID = job['result']['dwJobId']
 
         log("Upload Job", "INFO")
-        gdata = gzip.compress(data)
+        gdata = gdata.getvalue()
         client.upload(f"/api/client/PrintJob/Upload?dwJobId={jobID}", gdata, "raw.dat")
         client.upload(f"/api/client/PrintJob/UploadPreview?dwJobId={jobID}", preview, "preview.pvg")
 
