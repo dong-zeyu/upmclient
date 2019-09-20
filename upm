@@ -63,7 +63,7 @@ class Popen(threading.Thread):
         super().join(timeout)
         if self.is_alive():
             self.proc.terminate()
-            self.join()
+            super().join()
         else:
             self.proc.wait(timeout)
 
