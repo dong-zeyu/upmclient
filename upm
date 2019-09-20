@@ -44,6 +44,7 @@ args = len(sys.argv)
 is_gui = False
 try:
     from PyQt5.Qt import QVBoxLayout
+    from PyQt5.QtCore import Qt
     from PyQt5.QtGui import QIcon, QPixmap
     from PyQt5.QtWidgets import (QApplication, QDialog, QLabel, QLineEdit,
                              QMessageBox, QPushButton)
@@ -65,6 +66,7 @@ try:
         def createUI(self):
             self.setWindowIcon(icon)
             self.setWindowTitle("Unifound Printing Management System")
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
             l_user = QLabel("Username:", self)
             self.t_user = QLineEdit(self.username, self)
@@ -119,6 +121,7 @@ def log(msg, level):
         msgbox.setIcon(QMessageBox.Information)
         msgbox.setWindowIcon(icon)
         msgbox.setWindowTitle("Information")
+        msgbox.setWindowFlags(msgbox.windowFlags() | Qt.WindowStaysOnTopHint)
         msgbox.exec_()
     else:
         print(f"{level}: {msg}", file=sys.stderr)
@@ -128,6 +131,7 @@ def log(msg, level):
             msgbox.setIcon(QMessageBox.Critical if level == "ERROR" else QMessageBox.Warning)
             msgbox.setWindowIcon(icon)
             msgbox.setWindowTitle(level)
+            msgbox.setWindowFlags(msgbox.windowFlags() | Qt.WindowStaysOnTopHint)
             msgbox.exec_()
 
 
