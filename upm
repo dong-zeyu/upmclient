@@ -5,6 +5,7 @@ import gzip
 import io
 import json
 import os
+import queue
 import re
 import struct
 import subprocess
@@ -29,7 +30,8 @@ CUPS_BACKEND_CANCEL = 5  # Job failed, cancel job
 CUPS_BACKEND_RETRY = 6  # Job failed, retry this job later
 CUPS_BACKEND_RETRY_CURRENT = 7  # Job failed, retry this job immediately
 
-BUF_SIZE = 1024 * 1024 * 16  # 16M read buffer
+BUF_SIZE = 1024 * 64  # 64K read buffer
+QUEUE_LENGTH = 1024  # 1024 * BUF_SIZE for compression
 
 args = len(sys.argv)
 
@@ -66,6 +68,31 @@ class Popen(threading.Thread):
             super().join()
         else:
             self.proc.wait(timeout)
+
+
+class Compress(threading.Thread):
+    def __init__(self, fileobj):
+        super().__init__()
+        self.gf = gzip.GzipFile(mode='wb', fileobj=fileobj)
+        self.buf_queue = queue.Queue(QUEUE_LENGTH)
+
+        self.start()
+
+    def run(self):
+        while True:
+            buf = self.buf_queue.get()
+            if not buf:
+                break
+            self.gf.write(buf)
+
+    def close(self):
+        self.buf_queue.put(False)
+        self.join()
+        self.gf.close()
+        del self.buf_queue
+
+    def write(self, data):
+        self.buf_queue.put(data)
 
 
 class APIRequest:
@@ -131,7 +158,7 @@ def start_print(stream):
 
         write = []
         gdata = io.BytesIO()
-        gf = gzip.GzipFile(mode='wb', fileobj=gdata)
+        gf = Compress(fileobj=gdata)
         write.append(gf)
 
         pvg_pr, pvg_pw = os.pipe()
