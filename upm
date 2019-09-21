@@ -50,11 +50,22 @@ try:
                              QMessageBox, QPushButton)
 
     is_gui = True
+    GUI_LOGLEVEL = {
+        "NOTICE": QMessageBox.Information,
+        "WARNING": QMessageBox.Warning,
+        "ERROR": QMessageBox.Critical
+    }
+
     app = QApplication(sys.argv)
     pm = QPixmap()
     pm.loadFromData(gzip.decompress(base64.b85decode(ICON)))
     icon = QIcon(pm)
     app.setWindowIcon(icon)
+
+    msgbox = QMessageBox()
+    msgbox.setWindowIcon(icon)
+    msgbox.setWindowTitle("Unifound Printing Management System")
+    msgbox.setWindowFlags(msgbox.windowFlags() | Qt.WindowStaysOnTopHint)
 
     class AuthenticationDialog(QDialog):
         def __init__(self, username):
@@ -115,24 +126,11 @@ class RequestException(Exception):
 
 
 def log(msg, level):
-    if is_gui and level == "GUI":
-        msgbox = QMessageBox()
+    print(f"{level}: {msg}", file=sys.stderr)
+    if is_gui and level in GUI_LOGLEVEL:
         msgbox.setText(msg)
-        msgbox.setIcon(QMessageBox.Information)
-        msgbox.setWindowIcon(icon)
-        msgbox.setWindowTitle("Information")
-        msgbox.setWindowFlags(msgbox.windowFlags() | Qt.WindowStaysOnTopHint)
+        msgbox.setIcon(GUI_LOGLEVEL[level])
         msgbox.exec_()
-    else:
-        print(f"{level}: {msg}", file=sys.stderr)
-        if is_gui and (level == "ERROR" or level == "WARNING"):
-            msgbox = QMessageBox()
-            msgbox.setText(msg)
-            msgbox.setIcon(QMessageBox.Critical if level == "ERROR" else QMessageBox.Warning)
-            msgbox.setWindowIcon(icon)
-            msgbox.setWindowTitle(level)
-            msgbox.setWindowFlags(msgbox.windowFlags() | Qt.WindowStaysOnTopHint)
-            msgbox.exec_()
 
 
 class APIRequest:
@@ -291,8 +289,7 @@ def start_print(stream):
         client.upload(f"/api/client/PrintJob/UploadPreview?dwJobId={jobID}", preview, "preview.pvg")
 
         client.request("/api/client/PrintJob/Set", data={"dwJobId": jobID, "dwStatus": 1, "OSESSIONID": sid})
-        log("Printing Completed", "INFO")
-        log("Printing Completed", "GUI")
+        log("Printing Completed", "NOTICE")
         jobID = None
     except ServerException as e:
         log(f"Printing Server Error in [{str(e)}]", "ERROR")
