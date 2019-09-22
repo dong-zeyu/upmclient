@@ -5,6 +5,7 @@ import gzip
 import json
 import os
 import re
+import signal
 import struct
 import subprocess
 import sys
@@ -38,6 +39,15 @@ class ServerException(Exception):
 class RequestException(Exception):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+
+class BackendStopException(Exception):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+def sigterm(signum, frame):
+    raise BackendStopException()
 
 
 def log(msg, level):
@@ -96,6 +106,8 @@ def start_print(stream):
     client = APIRequest(url)
     jobID = None
     try:
+        signal.signal(signal.SIGTERM, sigterm)
+
         paper = client.request("/api/client/Paper/GetPaper", data={})
         sid = client.getSID()
 
@@ -164,6 +176,8 @@ def start_print(stream):
 
             bw_pages = color_map.count(0)
             color_pages = v_pages - bw_pages
+        except BackendStopException as e:
+            raise e
         except Exception as e:
             log(f"Failed to get printing info: {str(e)}", "WARNING")
             color_map = [0]
@@ -205,6 +219,10 @@ def start_print(stream):
     except requests.RequestException:
         log(f"Connect to Server Failed", "ERROR")
         sys.exit(CUPS_BACKEND_RETRY)
+
+    except BackendStopException:
+        log(f"Printing Canceled", "INFO")
+        sys.exit(CUPS_BACKEND_FAILED)
 
     except Exception as e:
         log(f"Backend Error: {str(e)}", "ERROR")
