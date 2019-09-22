@@ -147,13 +147,15 @@ def start_print(stream):
                 k = float(color.groups()[3])
 
                 if c == m == y == k == 0:
-                    log("Skipped an empty page", "NOTICE")
                     continue
                 elif c == m == y:
                     color_map.append(0)
                 else:
                     color_map.append(1)
             v_pages = len(color_map)
+
+            if pages - v_pages > 0:
+                log(f"Skipped {pages - v_pages} empty page(s)", "NOTICE")
 
             if v_pages == 0:
                 log("No valid pages found! Set to one", "WARNING")
