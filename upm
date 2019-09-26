@@ -2,12 +2,16 @@
 
 import base64
 import gzip
+import io
 import json
 import os
+import queue
 import re
+import signal
 import struct
 import subprocess
 import sys
+import threading
 import traceback
 
 import requests
@@ -39,6 +43,9 @@ ICON = "ABzY85Qu?Y0{`uhNla5=6ot<d5gfq@aRg^niXtGOR!{^dgeun70b8V69588`U{VmCR2q<B!H
     "RB7#?wbW*t3rPxOg1CnF=H<^s8UuUxfuLjZd|-)di9-;F-Y7vg$trr6}RaLu|c6zi|dOV6z{tXUYZm}O4=" \
     "^pZbzx-pWhL|(grP)bQcA|?r`f+WZmk^o3I*%O0DQnJ<S)l;jVrqdc#DzQdA6B%-ZYC{h22P@QPM}7qW00"
 
+BUF_SIZE = 1024 * 64  # 64K read buffer
+QUEUE_LENGTH = 1024  # 1024 * BUF_SIZE for compression
+
 args = len(sys.argv)
 
 is_gui = False
@@ -46,8 +53,7 @@ try:
     from PyQt5.Qt import QVBoxLayout
     from PyQt5.QtCore import Qt
     from PyQt5.QtGui import QIcon, QPixmap
-    from PyQt5.QtWidgets import (QApplication, QDialog, QLabel, QLineEdit,
-                             QMessageBox, QPushButton)
+    from PyQt5.QtWidgets import (QApplication, QDialog, QLabel, QLineEdit, QMessageBox, QPushButton)
 
     is_gui = True
     GUI_LOGLEVEL = {
@@ -112,7 +118,7 @@ try:
             self.close()
 
 except ImportError:
-    CUPS_BACKEND_RETRY_CURRENT = CUPS_BACKEND_CANCEL
+    CUPS_BACKEND_RETRY_CURRENT = CUPS_BACKEND_HOLD
 
 
 class ServerException(Exception):
@@ -125,12 +131,66 @@ class RequestException(Exception):
         super().__init__(*args, **kwargs)
 
 
+class BackendStopException(Exception):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+def sigterm(signum, frame):
+    raise BackendStopException()
+
+
 def log(msg, level):
     print(f"{level}: {msg}", file=sys.stderr)
     if is_gui and level in GUI_LOGLEVEL:
         msgbox.setText(msg)
         msgbox.setIcon(GUI_LOGLEVEL[level])
         msgbox.exec_()
+
+
+class Popen(threading.Thread):
+    def __init__(self, args, stdin):
+        super().__init__()
+        self.proc = subprocess.Popen(args, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.stdin = stdin
+        self.data = None
+        self.start()
+
+    def run(self):
+        self.data = self.proc.stdout.read()
+
+    def join(self, timeout):
+        super().join(timeout)
+        if self.is_alive():
+            self.proc.terminate()
+            super().join()
+        else:
+            self.proc.wait(timeout)
+
+
+class Compress(threading.Thread):
+    def __init__(self, fileobj):
+        super().__init__()
+        self.gf = gzip.GzipFile(mode='wb', fileobj=fileobj)
+        self.buf_queue = queue.Queue(QUEUE_LENGTH)
+
+        self.start()
+
+    def run(self):
+        while True:
+            buf = self.buf_queue.get()
+            if not buf:
+                break
+            self.gf.write(buf)
+
+    def close(self):
+        self.buf_queue.put(False)
+        self.join()
+        self.gf.close()
+        del self.buf_queue
+
+    def write(self, data):
+        self.buf_queue.put(data)
 
 
 class APIRequest:
@@ -161,6 +221,9 @@ class APIRequest:
     def getSID(self):
         if "OSESSIONID" in self.s.cookies:
             return self.s.cookies["OSESSIONID"]
+        else:
+            self.request("/api/client/Paper/GetPaper", data={})
+            return self.getSID()
 
     def close(self):
         self.s.close()
@@ -179,7 +242,7 @@ def start_print(stream):
         parse = re.match(fr"{SCHEMA}://([^/]*)/?(.*)", device_uri)
 
         dlg = AuthenticationDialog(parse.groups()[1])
-        
+
         dlg.exec_()
         username = dlg.username
         password = dlg.password
@@ -198,7 +261,8 @@ def start_print(stream):
     client = APIRequest(url)
     jobID = None
     try:
-        paper = client.request("/api/client/Paper/GetPaper", data={})
+        signal.signal(signal.SIGTERM, sigterm)
+
         sid = client.getSID()
 
         log("Start Login", "INFO")
@@ -207,12 +271,40 @@ def start_print(stream):
         client.request("/api/client/Auth/Cancel", data={"sessionid": sid, "szToken": auth["szToken"]})
         log(f"Print for {login['result']['szTrueName']}", "INFO")
 
-        log(f"Generage Page Info", "INFO")
-        data = stream.read()  # TODO: Optimizing for memory usage using os.pipe()
-        preview = PVG_MAGIC
+        write = []
+        gdata = io.BytesIO()
+        gf = Compress(fileobj=gdata)
+        write.append(gf)
+
+        pvg_pr, pvg_pw = os.pipe()
+        cl_pr, cl_pw = os.pipe()
+        pvg_proc = None
+        cl_proc = None
         try:
-            proc = subprocess.run(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], stdout=subprocess.PIPE, input=data, timeout=300)
-            png_data = proc.stdout
+            pvg_proc = Popen(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], stdin=pvg_pr)
+            write.append(open(pvg_pw, 'wb'))
+            cl_proc = Popen(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=inkcov", "-sOutputFile=%stdout", "-"], stdin=cl_pr)
+            write.append(open(cl_pw, 'wb'))
+        except OSError as e:
+            log(f"Failed to get printing info: {str(e)}", "WARNING")
+        finally:
+            os.close(pvg_pr)
+            os.close(cl_pr)
+
+        while True:
+            buf = stream.read(BUF_SIZE)
+            if buf == b'':
+                break
+            for w in write:
+                w.write(buf)
+        for w in write:
+            w.close()
+
+        log("Generate Page Info", "INFO")
+        preview = PVG_MAGIC
+        if pvg_proc:
+            pvg_proc.join(300)
+            png_data = pvg_proc.data
 
             ind = 0
             pages = 0
@@ -231,11 +323,15 @@ def start_print(stream):
                 ind = ind_new
             preview = preview + suffix + struct.pack("<I", pages)
 
-            proc = subprocess.run(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=inkcov", "-sOutputFile=%stdout", "-"], stdout=subprocess.PIPE, input=data, timeout=300)
-            cmyk = proc.stdout.decode().split("\n")
+        if cl_proc:
+            cl_proc.join(120)
+            cmyk = cl_proc.data.decode().split("\n")
 
             color_map = []
             for line in cmyk:
+                if not line:
+                    continue
+
                 color = re.match(r" ([\d\.]+)  ([\d\.]+)  ([\d\.]+)  ([\d\.]+) CMYK OK", line)
                 if color is None:
                     log(f"Invalid output from 'inkcov': {line}", "WARNING")
@@ -246,13 +342,15 @@ def start_print(stream):
                 k = float(color.groups()[3])
 
                 if c == m == y == k == 0:
-                    log("Skipped an empty page", "NOTICE")
                     continue
                 elif c == m == y:
                     color_map.append(0)
                 else:
                     color_map.append(1)
             v_pages = len(color_map)
+
+            if pages - v_pages > 0:
+                log(f"Skipped {pages - v_pages} empty page(s)", "NOTICE")
 
             if v_pages == 0:
                 log("No valid pages found! Set to one", "WARNING")
@@ -261,15 +359,14 @@ def start_print(stream):
 
             bw_pages = color_map.count(0)
             color_pages = v_pages - bw_pages
-        except Exception as e:
-            log(f"Failed to get printing info: {str(e)}", "WARNING")
+        else:
             color_map = [0]
             bw_pages = 1
             color_pages = 0
-            pages = v_pages = 1
+            v_pages = 1
 
         log(f"Create Job [Valid Pages: {v_pages}, Color: {color_pages}, Grayscale: {bw_pages}]", "INFO")
-        # TODO: Add A3 paper and single/duplex supports. Single is default now 
+        # TODO: Add A3 paper and single/duplex supports. Single is default now
         # TODO: Add "切换为黑白输出" support
         job_spec = {
             "dwProperty": 0,
@@ -284,7 +381,7 @@ def start_print(stream):
         jobID = job['result']['dwJobId']
 
         log("Upload Job", "INFO")
-        gdata = gzip.compress(data)
+        gdata = gdata.getvalue()
         client.upload(f"/api/client/PrintJob/Upload?dwJobId={jobID}", gdata, "raw.dat")
         client.upload(f"/api/client/PrintJob/UploadPreview?dwJobId={jobID}", preview, "preview.pvg")
 
@@ -302,6 +399,10 @@ def start_print(stream):
     except requests.RequestException:
         log(f"Connect to Server Failed", "ERROR")
         sys.exit(CUPS_BACKEND_RETRY)
+
+    except BackendStopException:
+        log(f"Printing Canceled", "INFO")
+        sys.exit(CUPS_BACKEND_FAILED)
 
     except Exception as e:
         log(f"Backend Error: {str(e)}", "ERROR")
