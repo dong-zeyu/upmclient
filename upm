@@ -82,6 +82,9 @@ class APIRequest:
     def getSID(self):
         if "OSESSIONID" in self.s.cookies:
             return self.s.cookies["OSESSIONID"]
+        else:
+            self.request("/api/client/Paper/GetPaper", data={})
+            return self.getSID()
 
     def close(self):
         self.s.close()
@@ -108,7 +111,6 @@ def start_print(stream):
     try:
         signal.signal(signal.SIGTERM, sigterm)
 
-        paper = client.request("/api/client/Paper/GetPaper", data={})
         sid = client.getSID()
 
         log("Start Login", "INFO")
@@ -186,7 +188,7 @@ def start_print(stream):
             pages = v_pages = 1
 
         log(f"Create Job [Valid Pages: {v_pages}, Color: {color_pages}, Grayscale: {bw_pages}]", "INFO")
-        # TODO: Add A3 paper and single/duplex supports. Single is default now 
+        # TODO: Add A3 paper and single/duplex supports. Single is default now
         # TODO: Add "切换为黑白输出" support
         job_spec = {
             "dwProperty": 0,
