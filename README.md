@@ -54,4 +54,4 @@ Run the following command in the terminal.
 
 - Supporting A4 Paper only
 - "切换到黑白输出" not working
-- **Unable to count pages and identify color properly and may produce extra charge under some special circumstances. Please be sure to check page and color information at the terminal machine.**
+- **when printing application-level grayscale documents, this driver fails to identify color properly and may produce extra charge. To avoid this, be sure to use system-level printing setting dialog for color management. and double check the page and color information at the terminal machine.**
