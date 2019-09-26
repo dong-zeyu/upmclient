@@ -18,13 +18,15 @@ Please follow the steps below to finish the installation.
 
 ### Install Requirements
 
-1. Run the following command in the terminal.
+1. Install [Python](https://www.python.org/downloads/mac-osx/) if you haven't.
 
-        sudo -H pip3 install requests
+2. Run the following command in the terminal.
+
+        pip3 install requests
 
     When using [Qt](https://github.com/dizzam/upmclient/tree/qt) version, `pyqt5` is also required to be installed.
 
-2. Install [Gutenprint](http://gimp-print.sourceforge.net/MacOSX.php)
+3. Install [Gutenprint](http://gimp-print.sourceforge.net/MacOSX.php)
 
 ### Install Printing Backend
 
