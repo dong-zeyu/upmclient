@@ -195,8 +195,13 @@ def start_print(stream):
             buf = stream.read(BUF_SIZE)
             if buf == b'':
                 break
-            for w in write:
-                w.write(buf)
+            try:
+                for w in write:
+                    w.write(buf)
+            except BrokenPipeError:
+                log("Failed to write to pipe", "WARNING")
+                w.close()
+                write.remove(w)
         for w in write:
             w.close()
 
