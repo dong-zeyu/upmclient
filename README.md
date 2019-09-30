@@ -4,7 +4,7 @@ SUSTech Unifound Printing Management System Backend for Mac OS.
 
 南方科技大学联创打印系统 Mac OS 驱动
 
-This driver can be also used in any Unix system that supports CUPS with slightly different configuration
+This driver can be also used in any Unix system that supports CUPS with slightly different configuration.
 
 ## Requirements
 
@@ -48,10 +48,10 @@ Run the following command in the terminal.
     For SUSTech users, use `<server host>=172.18.1.141` and `<port>=9130` or `<port>=80`. `<username>` and `<password>` are your account for the printing system and are optional **only** in [Qt](https://github.com/dizzam/upmclient/tree/qt) version.
 5. Next, input the printer name, description and location as you like.
 6. On the next page, it's recommended to choose `Gestetner > Gestetner DSc1030 - CUPS+Gutenprint` as printer make and module.
-7. Finally, On the option page, change *Media Size* to A4 and change *Color Model* to Grayscale if you are not going to print color pages.
+7. Finally, on the option page, change *Media Size* to A4 and change *Color Model* to Grayscale if you are not going to print color pages.
 
 ## Bugs
 
 - Supporting A4 Paper only
 - "切换到黑白输出" not working
-- **when printing application-level grayscale documents, this driver fails to identify color properly and may produce extra charge. To avoid this, be sure to use system-level printing setting dialog for color management. and double check the page and color information at the terminal machine.**
+- **When printing application-level grayscale documents, this driver fails to identify color properly and may produce extra charge. To avoid this, be sure to use system-level printing setting dialog for color management and double check the page and color information at the terminal machine.**
