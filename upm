@@ -34,6 +34,7 @@ CUPS_BACKEND_RETRY_CURRENT = 7  # Job failed, retry this job immediately
 BUF_SIZE = 1024 * 64  # 64K read buffer
 QUEUE_LENGTH = 1024  # 1024 * BUF_SIZE for compression
 
+os.environ["PATH"] = "/usr/local/bin" + os.pathsep + os.environ["PATH"]
 args = len(sys.argv)
 
 
@@ -180,9 +181,9 @@ def start_print(stream):
         pvg_proc = None
         cl_proc = None
         try:
-            pvg_proc = Popen(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], stdin=pvg_pr)
+            pvg_proc = Popen(["gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=pngalpha", "-sOutputFile=%stdout", "-"], stdin=pvg_pr)
             write.append(open(pvg_pw, 'wb'))
-            cl_proc = Popen(["/usr/local/bin/gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=inkcov", "-sOutputFile=%stdout", "-"], stdin=cl_pr)
+            cl_proc = Popen(["gpcl6", "-dSAFER", "-dNOPAUSE", "-sDEVICE=inkcov", "-sOutputFile=%stdout", "-"], stdin=cl_pr)
             write.append(open(cl_pw, 'wb'))
         except OSError as e:
             log(f"Failed to get printing info: {str(e)}", "WARNING")
