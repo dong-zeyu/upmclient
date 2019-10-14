@@ -30,6 +30,7 @@ CUPS_BACKEND_STOP = 4  # Job failed, stop queue
 CUPS_BACKEND_CANCEL = 5  # Job failed, cancel job
 CUPS_BACKEND_RETRY = 6  # Job failed, retry this job later
 CUPS_BACKEND_RETRY_CURRENT = 7  # Job failed, retry this job immediately
+UPM_REQUEST_FAILED = CUPS_BACKEND_RETRY_CURRENT
 
 ICON = "ABzY85Qu?Y0{`uhNla5=6ot<d5gfq@aRg^niXtGOR!{^dgeun70b8V69588`U{VmCR2q<B!H_PRG9;Eo+n" \
     "`XWQifK<7y>CtL#0Fv?V>V-Vqv4=qCR9;x^l_)=jP^|ySV5606{%(Z~P_A9q^%g097-VKUD-g@h@s65>yr" \
@@ -74,9 +75,9 @@ try:
     msgbox.setWindowFlags(msgbox.windowFlags() | Qt.WindowStaysOnTopHint)
 
     class AuthenticationDialog(QDialog):
-        def __init__(self, username):
+        def __init__(self, username, password):
             super().__init__()
-            self.password = None
+            self.password = password
             self.username = username
             self.createUI()
 
@@ -89,7 +90,7 @@ try:
             self.t_user = QLineEdit(self.username, self)
 
             l_pass = QLabel("Password:", self)
-            self.t_pass = QLineEdit("", self)
+            self.t_pass = QLineEdit(self.password, self)
             self.t_pass.setEchoMode(QLineEdit.Password)
 
             b_ok = QPushButton("Confirm", self)
@@ -115,10 +116,11 @@ try:
             self.close()
 
         def cancel(self):
+            self.password = ""
             self.close()
 
 except ImportError:
-    CUPS_BACKEND_RETRY_CURRENT = CUPS_BACKEND_HOLD
+    UPM_REQUEST_FAILED = CUPS_BACKEND_HOLD
 
 
 class ServerException(Exception):
@@ -233,25 +235,25 @@ def start_print(stream):
     device_uri = os.environ["DEVICE_URI"]
     job_title = sys.argv[3]
 
-    parse = re.match(fr"{SCHEMA}://(.*)/(.*?):(.*)", device_uri)
-    if parse is None:
-        if not is_gui:
-            log("Invalid device URI", "ERROR")
-            sys.exit(CUPS_BACKEND_STOP)
+    parse = re.match(fr"{SCHEMA}://([^/]*)/?([^:]*):?(.*)", device_uri)
+    if not parse:
+        log("Invalid device URI", "ERROR")
+        sys.exit(CUPS_BACKEND_STOP)
+    username = parse.groups()[1]
+    password = parse.groups()[2]
 
-        parse = re.match(fr"{SCHEMA}://([^/]*)/?(.*)", device_uri)
-
-        dlg = AuthenticationDialog(parse.groups()[1])
-
+    if is_gui:
+        dlg = AuthenticationDialog(username, password)
         dlg.exec_()
         username = dlg.username
         password = dlg.password
+    elif not username or not password:
+        log("Invalid device URI", "ERROR")
+        sys.exit(CUPS_BACKEND_STOP)
 
-        if password is None:
-            sys.exit(CUPS_BACKEND_CANCEL)
-    else:
-        username = parse.groups()[1]
-        password = parse.groups()[2]
+    if not username or not password:
+        log("Printing Canceled", "NOTICE")
+        sys.exit(CUPS_BACKEND_CANCEL)
 
     url = "http://" + parse.groups()[0]
     log(f"Username: {username}", "INFO")
@@ -394,7 +396,7 @@ def start_print(stream):
 
     except RequestException as e:
         log(f"Invalid Request: {str(e)}", "ERROR")
-        sys.exit(CUPS_BACKEND_RETRY_CURRENT)
+        sys.exit(UPM_REQUEST_FAILED)
 
     except requests.RequestException:
         log(f"Connect to Server Failed", "ERROR")
